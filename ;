@@ -1,0 +1,97 @@
+#include<stdio.h>
+#include<stdlib.h>
+#include<unistd.h>
+#include<time.h>
+#include<stdbool.h>
+typedef struct{
+  double kI;
+  double kD;
+  double kP;
+  double* input;
+  double* output;
+  double* setpoint;
+  unsigned char isForward;
+  time_t lastTime; //only keeping track of sample time, don't want to have to set a value to millis()
+  time_t sampleTime;
+  double outMin;
+  double outMax;
+
+  double lastInput;
+  double integralTerm;
+} PID;
+
+PID* initializePID(double kI, double kD, double kP, double* input, double* output, double* setpoint){
+  PID *newPID = malloc(sizeof *newPID);
+  newPID->kI = kI;
+  newPID->kD = kD;
+  newPID->kP = kP;
+  newPID->input = input;
+  newPID->output = output;
+  newPID->setpoint = setpoint;
+  newPID->isForward = 0;
+  newPID->sampleTime = 100; //just set a default of 100ms
+  newPID->lastTime = time(NULL)-(newPID->sampleTime);
+  newPID->outMin = 0;
+  newPID->outMax = 255;
+  return newPID;
+}
+
+int setSampleTime(unsigned long newSamp, PID* pid){
+  pid->sampleTime = newSamp;
+}
+
+
+/*
+ * Allows us to make the PID control more aggressive or conservative while midway
+ * */
+void setTunings(double kI, double kP, double kD, PID* pid){
+  pid->kD = kD;
+  pid->kP = kP;
+  pid->kI = kI;
+}
+
+bool calcUpdate(double error, PID* pid){
+  time_t now = time(NULL);
+  unsigned long timeDiff = now - pid->lastTime;
+  if (timeDiff > pid->sampleTime){
+    double error = *(pid->setpoint) - *(pid->input);
+    pid->integralTerm += (pid->kI * error);
+    printf("ITERMORIGINAL: %g\n", pid->integralTerm);
+    if (pid->integralTerm > pid->outMax){
+      pid->integralTerm = pid->outMax; //Makes sure we don't go over the set amount
+    }
+    else if (pid->integralTerm < pid->outMin){
+      pid->integralTerm = pid->outMin; //Makes sure we don't go under the set amount that we can output and fool the PID reader
+    }
+    printf("Error: %g\nIterm: %g\n", error, pid->integralTerm);
+    double derivativeInput = *(pid->input) - pid->lastInput;
+    double output = pid->kP * error + pid->integralTerm - pid->kD * derivativeInput;
+    if (output > pid->outMax){
+      output = pid->outMax;
+    }
+    else if (output < pid->outMin) {
+      output = pid->outMin;
+    }
+    printf("%g\n", output);
+    *(pid->output) = output;
+    pid->lastInput = *(pid->input);
+    pid->lastTime = now;
+    return true;
+  }
+  else{
+    return false;
+  }
+}
+
+int main(){
+  double input = 4;
+  double output = 3;
+  double setpoint = 5;
+  PID *testPID = initializePID(3.2, 4.2, 5.2, &input, &output, &setpoint);
+  sleep(1);
+  input = 8;
+  calcUpdate(5, testPID);
+  printf("%g\n", *(testPID->output));
+  free(testPID);
+  return 0;
+}
